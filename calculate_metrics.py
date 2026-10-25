@@ -1,7 +1,10 @@
 """Retrieval Evaluation Metrics Calculator
 
-Computes empirical IR metrics (Hit@K, Recall@K, MRR@K, nDCG@K) for Dense, BM25,
-and Hybrid RRF retrieval pipelines against human-reviewed ground truth labels.
+Computes empirical IR metrics (Hit@K, Recall@K, MRR@K, nDCG@K) for:
+1. Dense Vector Retrieval (bge-small-en-v1.5)
+2. Sparse Lexical Retrieval (BM25Okapi)
+3. Hybrid Retrieval (Reciprocal Rank Fusion)
+4. Hybrid Retrieval + Cross-Encoder Reranker (ms-marco-MiniLM-L-6-v2)
 """
 
 import json
@@ -10,12 +13,14 @@ from collections import defaultdict
 from pathlib import Path
 
 import openpyxl
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 LABELED_WORKBOOK = Path("data/relevance_review_pilot_labeled.xlsx")
 CANDIDATES_FILE = Path("data/eval_candidates.jsonl")
 OUTPUT_METRICS = Path("data/baseline_metrics.json")
 
 K = 5
+RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 
 
 def dcg_at_k(rel_scores, k=K):
@@ -56,7 +61,7 @@ def load_ground_truth(sheet_name="Pilot Review"):
     return labels
 
 
-def evaluate(sheet_name="Pilot Review", k=K):
+def evaluate(sheet_name="Pilot Review", k=K, include_reranker=True):
     labels = load_ground_truth(sheet_name=sheet_name)
     eval_qids = sorted(list({qid for (qid, _) in labels.keys()}))
 
@@ -83,12 +88,33 @@ def evaluate(sheet_name="Pilot Review", k=K):
 
     # Organize candidates by (qid, method)
     retrieval_data = defaultdict(dict)
+    question_text = {}
     for row in candidates:
         qid = row["question_id"]
         if qid in eval_qids:
             retrieval_data[qid][row["method"]] = row["results"]
+            question_text[qid] = row["question"]
+
+    # Compute reranked candidates from hybrid if requested
+    if include_reranker:
+        print(f"Loading Cross-Encoder Reranker ({RERANKER_MODEL})...")
+        reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
+        for qid in eval_qids:
+            hybrid_cands = retrieval_data[qid].get("hybrid_rrf", [])
+            if hybrid_cands:
+                passages = [c.get("text", "")[:1200] for c in hybrid_cands]
+                scores = list(reranker.rerank(question_text[qid], passages))
+                reranked = [
+                    {**c, "rerank_score": float(s)}
+                    for c, s in zip(hybrid_cands, scores)
+                ]
+                reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
+                retrieval_data[qid]["hybrid_reranked"] = reranked
 
     methods = ["dense", "bm25", "hybrid_rrf"]
+    if include_reranker:
+        methods.append("hybrid_reranked")
+
     metrics_by_method = {
         m: {
             "hit_lenient": [],
@@ -110,7 +136,7 @@ def evaluate(sheet_name="Pilot Review", k=K):
 
         for m in methods:
             results = retrieval_data[qid].get(m, [])
-            top_k = [r for r in results if r["rank"] <= k]
+            top_k = [r for r in results[:k]]
             rel_scores = [labels.get((qid, r["case_name"]), 0) for r in top_k]
 
             # Hit Rate@K
@@ -162,11 +188,11 @@ def evaluate(sheet_name="Pilot Review", k=K):
     summary = {}
     num_q = len(eval_qids)
 
-    print("\n" + "=" * 80)
+    print("\n" + "=" * 90)
     print(f"RETRIEVAL BENCHMARK REPORT (K={k}) | Scope: {sheet_name} ({num_q} Questions)")
-    print("=" * 80)
-    print(f"{'Method':<12} | {'Hit@5(L)':<8} | {'Recall@5(L)':<11} | {'MRR@5(L)':<8} | {'nDCG@5':<8} | {'Strict MRR':<10} | {'Strict Rec':<10}")
-    print("-" * 80)
+    print("=" * 90)
+    print(f"{'Method':<16} | {'Hit@5(L)':<8} | {'Recall@5(L)':<11} | {'MRR@5(L)':<8} | {'nDCG@5':<8} | {'Strict MRR':<10} | {'Strict Rec':<10}")
+    print("-" * 90)
 
     for m in methods:
         data = metrics_by_method[m]
@@ -190,17 +216,16 @@ def evaluate(sheet_name="Pilot Review", k=K):
         }
 
         print(
-            f"{m:<12} | {avg_hl:<8.4f} | {avg_rl:<11.4f} | {avg_mrrl:<8.4f} | {avg_ndcg:<8.4f} | {avg_mrrs:<10.4f} | {avg_rs:<10.4f}"
+            f"{m:<16} | {avg_hl:<8.4f} | {avg_rl:<11.4f} | {avg_mrrl:<8.4f} | {avg_ndcg:<8.4f} | {avg_mrrs:<10.4f} | {avg_rs:<10.4f}"
         )
 
-    print("=" * 80)
+    print("=" * 90)
     print("Definitions:")
     print("  (L) = Lenient (relevance >= 1: partial or strong)")
     print("  Strict = (relevance >= 2: strong only)")
     print("  nDCG@5 = Graded relevance gain (0=irrelevant, 1=partial, 2=strong)")
-    print("=" * 80)
+    print("=" * 90)
 
-    # Save to JSON
     report = {
         "benchmark_scope": sheet_name,
         "k": k,
