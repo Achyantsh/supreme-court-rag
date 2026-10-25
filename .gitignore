@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+qdrant_storage/
+data/*
+!data/.gitkeep
+!data/eval_questions.json
+!data/eval_candidates.jsonl
+!data/relevance_review.xlsx
+!data/relevance_review_pilot_labeled.xlsx
+!data/baseline_metrics.json
