@@ -7,6 +7,10 @@ data/*
 !data/.gitkeep
 !data/eval_questions.json
 !data/eval_candidates.jsonl
+!data/eval_candidates_v2.jsonl
 !data/relevance_review.xlsx
 !data/relevance_review_pilot_labeled.xlsx
+!data/relevance_review_v2.xlsx
 !data/baseline_metrics.json
+!data/pilot_metrics_v2.json
+!data/full_benchmark_metrics_v2.json

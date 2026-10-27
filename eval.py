@@ -1,228 +1,134 @@
+"""Evaluation Candidate Generator for Supreme Court RAG
+
+Generates Top-20 unique judgment rankings across 4 retrieval strategies:
+1. Dense Vector Retrieval (bge-small-en-v1.5)
+2. Lexical Retrieval (BM25Okapi)
+3. Hybrid Fusion (Reciprocal Rank Fusion, k=60)
+4. Multi-stage Hybrid + Cross-Encoder Reranker (ms-marco-MiniLM-L-6-v2)
+
+Uses QueryEngine from query_pipeline.py as the unified source of truth.
+Outputs candidate rankings to data/eval_candidates_v2.jsonl.
+"""
 
 import json
-import re
-from collections import defaultdict
 from pathlib import Path
+from typing import Dict, Any, List
 
-from fastembed import TextEmbedding
-from qdrant_client import QdrantClient
-from rank_bm25 import BM25Okapi
-
+from query_pipeline import QueryEngine, document_key
 
 QUESTIONS_FILE = Path("data/eval_questions.json")
-CHUNKS_FILE = Path("data/chunks.jsonl")
-DB_PATH = Path("qdrant_storage")
-OUTPUT_FILE = Path("data/eval_candidates.jsonl")
-
-COLLECTION = "supreme_court_2023"
-MODEL_NAME = "BAAI/bge-small-en-v1.5"
+OUTPUT_FILE = Path("data/eval_candidates_v2.jsonl")
 
 CANDIDATE_K = 50
-FINAL_K = 10
-RRF_K = 60
+TOP_K = 20
+METHODS = ["dense", "bm25", "hybrid_rrf", "hybrid_reranked"]
 
 
-def tokenize(text):
-    return re.findall(r"[a-z0-9]+", text.lower())
+def generate_evaluation_candidates(
+    questions_file: Path = QUESTIONS_FILE,
+    output_file: Path = OUTPUT_FILE,
+    candidate_k: int = CANDIDATE_K,
+    top_k: int = TOP_K,
+    engine: QueryEngine = None,
+) -> List[Dict[str, Any]]:
+    """Retrieve top-K unique judgments across all 4 methods for evaluation questions."""
+    if not questions_file.exists():
+        raise FileNotFoundError(f"Missing evaluation questions: {questions_file}")
 
+    with questions_file.open(encoding="utf-8") as f:
+        questions = json.load(f)
 
-def document_key(record):
-    # Prefer a stable judgment-level ID, not a chunk ID.
-    return (
-        record.get("doc_id")
-        or record.get("source_pdf")
-        or record.get("case_name", "unknown")
-    )
-
-
-def load_jsonl(path):
-    with path.open(encoding="utf-8") as file:
-        return [json.loads(line) for line in file if line.strip()]
-
-
-def unique_documents(ranked_records, limit=FINAL_K):
-    """Keep the highest-ranked chunk for each judgment."""
-    results = []
-    seen = set()
-
-    for record in ranked_records:
-        key = document_key(record)
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        results.append(record)
-
-        if len(results) == limit:
-            break
-
-    return results
-
-
-def reciprocal_rank_fusion(vector_records, bm25_records):
-    scores = defaultdict(float)
-    records = {}
-
-    # Fuse unique judgments, not individual chunks.
-    for ranked_list in (vector_records, bm25_records):
-        seen_docs = set()
-        document_rank = 0
-
-        for record in ranked_list:
-            doc_key = document_key(record)
-
-            if doc_key in seen_docs:
-                continue
-
-            seen_docs.add(doc_key)
-            document_rank += 1
-
-            scores[doc_key] += 1.0 / (RRF_K + document_rank)
-
-            # Keep one representative chunk for each judgment.
-            if doc_key not in records:
-                records[doc_key] = record
-
-    ranked_docs = sorted(
-        scores,
-        key=lambda doc_key: scores[doc_key],
-        reverse=True,
-    )
-
-    return [
-        {
-            **records[doc_key],
-            "rrf_score": scores[doc_key],
-        }
-        for doc_key in ranked_docs
-    ]
-
-
-def main():
-    for path in (QUESTIONS_FILE, CHUNKS_FILE):
-        if not path.exists():
-            raise FileNotFoundError(f"Missing file: {path}")
-
-    with QUESTIONS_FILE.open(encoding="utf-8") as file:
-        questions = json.load(file)
-
-    chunks = load_jsonl(CHUNKS_FILE)
-
-    print("Evaluation questions:", len(questions))
-    print("Corpus chunks:", len(chunks))
-
-    print("Building BM25 index...")
-    bm25 = BM25Okapi([
-        tokenize(record.get("text", ""))
-        for record in chunks
-    ])
-
-    print("Loading embedding model...")
-    embedding_model = TextEmbedding(model_name=MODEL_NAME)
-
-    # Use the local database only after other Qdrant clients are closed.
-    client = QdrantClient(path=str(DB_PATH.resolve()))
+    print(f"Loaded {len(questions)} evaluation questions from {questions_file}")
+    owns_engine = False
+    if engine is None:
+        engine = QueryEngine()
+        owns_engine = True
 
     try:
         output_rows = []
+        seen_pairs = set()
 
-        for number, item in enumerate(questions, start=1):
-            question = item["question"]
-            print(f"[{number}/{len(questions)}] {item['id']}: {question}")
+        for idx, item in enumerate(questions, start=1):
+            qid = item["id"]
+            topic = item.get("topic", "")
+            query = item["question"]
+            print(f"[{idx:02d}/{len(questions)}] Processing {qid} ({topic}): {query[:60]}...")
 
-            # 1. Dense retrieval
-            query_vector = list(
-                embedding_model.query_embed(question)
-            )[0].tolist()
-
-            vector_hits = client.query_points(
-                collection_name=COLLECTION,
-                query=query_vector,
-                limit=CANDIDATE_K,
-                with_payload=True,
-            ).points
-
-            vector_ranked = [
-                {**point.payload, "dense_score": point.score}
-                for point in vector_hits
-                if point.payload
-            ]
-
-            # 2. BM25 retrieval
-            bm25_scores = bm25.get_scores(tokenize(question))
-            bm25_indices = sorted(
-                range(len(bm25_scores)),
-                key=lambda idx: bm25_scores[idx],
-                reverse=True,
-            )[:CANDIDATE_K]
-
-            bm25_ranked = [
-                {**chunks[idx], "bm25_score": float(bm25_scores[idx])}
-                for idx in bm25_indices
-                if bm25_scores[idx] > 0
-            ]
-
-            # 3. Hybrid ranking over chunk-level rankings
-            hybrid_ranked = reciprocal_rank_fusion(
-                vector_ranked,
-                bm25_ranked,
+            # Retrieve rankings across all four methods using unified pipeline
+            method_rankings = engine.retrieve_all_methods(
+                query=query,
+                top_k=top_k,
+                candidate_k=candidate_k,
             )
 
-            methods = {
-                "dense": vector_ranked,
-                "bm25": bm25_ranked,
-                "hybrid_rrf": hybrid_ranked,
-            }
+            for method in METHODS:
+                pair_key = (qid, method)
+                if pair_key in seen_pairs:
+                    raise ValueError(f"Duplicate evaluation record detected for {pair_key}")
+                seen_pairs.add(pair_key)
 
-            for method, ranked in methods.items():
-                documents = unique_documents(ranked)
+                judgments = method_rankings.get(method, [])
+
+                # Verify no judgment is ranked twice within the same method
+                seen_docs = set()
+                results = []
+
+                for rank, record in enumerate(judgments, start=1):
+                    doc_id = document_key(record)
+                    if doc_id in seen_docs:
+                        raise ValueError(
+                            f"Duplicate judgment '{doc_id}' in ranking for {qid} method '{method}'"
+                        )
+                    seen_docs.add(doc_id)
+
+                    results.append({
+                        "rank": rank,
+                        "doc_id": doc_id,
+                        "case_name": record.get("case_name"),
+                        "citation": record.get("citation"),
+                        "decision_date": record.get("decision_date"),
+                        "source_pdf": record.get("source_pdf"),
+                        "chunk_id": record.get("chunk_id"),
+                        "score": record.get("rerank_score", record.get("score")),
+                        "text": (record.get("text") or "")[:1800],
+                    })
 
                 output_rows.append({
-                    "question_id": item["id"],
-                    "topic": item["topic"],
-                    "question": question,
+                    "question_id": qid,
+                    "topic": topic,
+                    "question": query,
                     "method": method,
-                    "results": [
-                        {
-                            "rank": rank,
-                            "doc_id": document_key(record),
-                            "case_name": record.get("case_name"),
-                            "citation": record.get("citation"),
-                            "decision_date": record.get("decision_date"),
-                            "source_pdf": record.get("source_pdf"),
-                            "chunk_id": record.get("chunk_id"),
-                            "score": record.get(
-                                "dense_score",
-                                record.get(
-                                    "bm25_score",
-                                    record.get("rrf_score"),
-                                ),
-                            ),
-                            "text": record.get("text", "")[:1800],
-                        }
-                        for rank, record in enumerate(documents, start=1)
-                    ],
+                    "results": results,
                 })
 
-        with OUTPUT_FILE.open("w", encoding="utf-8") as file:
+        # Final sanity validations
+        expected_rows = len(questions) * len(METHODS)
+        if len(output_rows) != expected_rows:
+            raise RuntimeError(
+                f"Generated {len(output_rows)} rows, but expected {expected_rows} "
+                f"({len(questions)} questions x {len(METHODS)} methods)."
+            )
+
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with output_file.open("w", encoding="utf-8") as f:
             for row in output_rows:
-                file.write(json.dumps(row, ensure_ascii=False) + "\n")
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-        print("\n--- CANDIDATE GENERATION REPORT ---")
-        print("Questions processed:", len(questions))
-        print("Retrieval methods:", len(methods))
-        print("Candidate rows:", len(output_rows))
-        print("Output:", OUTPUT_FILE.resolve())
-        print("Expected rows:", len(questions) * 3)
+        print("\n--- CANDIDATE GENERATION COMPLETE ---")
+        print(f"Questions processed: {len(questions)}")
+        print(f"Retrieval methods:    {len(METHODS)} ({', '.join(METHODS)})")
+        print(f"Ranking records:      {len(output_rows)}")
+        print(f"Output saved to:      {output_file.resolve()}")
 
-        if len(output_rows) != len(questions) * 3:
-            raise RuntimeError("Unexpected number of output rows.")
-
-        print("\nSUCCESS: Candidate results saved.")
+        return output_rows
 
     finally:
-        client.close()
+        if owns_engine:
+            engine.close()
+
+
+def main():
+    generate_evaluation_candidates()
 
 
 if __name__ == "__main__":

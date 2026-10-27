@@ -146,6 +146,7 @@ class QueryEngine:
         for record, score in zip(candidate_records, rerank_scores):
             scored_records.append({
                 **record,
+                "score": float(score),
                 "rerank_score": float(score),
                 "retrieval_method": "hybrid_reranked",
             })
@@ -176,6 +177,35 @@ class QueryEngine:
 
         else:
             raise ValueError(f"Unknown retrieval mode: {mode}")
+
+    def retrieve_all_methods(self, query, top_k=20, candidate_k=DEFAULT_CANDIDATE_K):
+        """Retrieve rankings for all 4 methods sharing intermediate dense and BM25 candidate sets.
+
+        Guarantees exact parity with calling retrieve() individually:
+        1. Dense: top_k unique judgments from dense search.
+        2. BM25: top_k unique judgments from BM25 search.
+        3. Hybrid RRF: top_k unique judgments fused from dense and BM25.
+        4. Hybrid Reranked: top 20 RRF judgments reranked by cross-encoder, returning top_k.
+        """
+        dense_chunks = self.search_dense(query, limit=candidate_k)
+        bm25_chunks = self.search_bm25(query, limit=candidate_k)
+
+        dense_res = self._dedup_judgments(dense_chunks)[:top_k]
+        bm25_res = self._dedup_judgments(bm25_chunks)[:top_k]
+
+        fused_all = self.reciprocal_rank_fusion(dense_chunks, bm25_chunks)
+        hybrid_res = fused_all[:top_k]
+
+        # Application pipeline reranks top 20 RRF judgments
+        hybrid_top20 = fused_all[:20]
+        reranked_res = self.rerank(query, hybrid_top20, top_k=top_k)
+
+        return {
+            "dense": dense_res,
+            "bm25": bm25_res,
+            "hybrid_rrf": hybrid_res,
+            "hybrid_reranked": reranked_res,
+        }
 
     def _dedup_judgments(self, records):
         seen = set()
