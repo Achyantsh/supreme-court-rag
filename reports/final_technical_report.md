@@ -336,7 +336,7 @@ The engineering decision supported by the results is to keep BM25/RRF as essenti
 | Membership-only validation and parser coverage gaps | Source IDs do not prove semantic support; missing citations can evade checking |
 | External Gemini behavior and provider quota | Generations can vary or fail; earlier runs record upstream 429 quota failures exposed as local 502 responses |
 | Local Qdrant locking and eager model loading | One process should own storage; startup may load/download models even for lexical-only use |
-| No verified production deployment/hardening | No Docker/AWS production, availability, latency, scalability, authentication, or legal-reliability claim |
+| No production-grade deployment/hardening claim | The verified AWS deployment is limited to an IAM-authenticated static project API; no full-pipeline AWS hosting, availability, latency, scalability, or legal-reliability claim |
 | Unpinned dependencies; missing explicit preprocessing packages | A fresh installation is not an exact reconstruction of the evaluated environment |
 | Earlier final retrieval prose overgeneralizes zero-crossing intervals | Use numeric `paired_bootstrap_comparisons`, not the incorrect blanket interpretation |
 | `data/heldout_metrics_v1.json` lacks strict metrics and intervals | Use `reports/heldout_final_metrics_v1.json` for the complete held-out table |
@@ -439,11 +439,38 @@ Future work would require **new**, versioned experiments and questions: broader 
 
 Built a local evaluation-driven legal RAG system over 800 English Indian Supreme Court judgments, comparing five retrieval configurations on 30 held-out queries and 292 reviewed query–judgment pairs; Hybrid RRF achieved nDCG@5 of 0.8178 and strict pooled Recall@5 of 0.6710.
 
+### Verified AWS deployment
+
+The project includes a verified AWS serverless **project API** deployment, not
+an AWS-hosted RAG engine. In the Free account plan, CloudFormation stack
+`supreme-court-rag-demo` reached `CREATE_COMPLETE` in `ap-southeast-2` and
+deployed a Lambda execution role, Lambda function, IAM-authenticated Function
+URL, and CloudWatch log group. The Lambda runs Python 3.12 on ARM64 with 128 MB
+memory, a 3-second timeout, no reserved concurrency, and 3-day log retention.
+
+The verified `GET /health`, `GET /about`, and `GET /benchmark/summary` endpoints
+serve static metadata and recorded benchmark results only. They do not execute
+Qdrant queries, dense or BM25 retrieval, Hybrid RRF, cross-encoder reranking,
+or Gemini generation. The complete RAG pipeline remains in the local Docker
+Compose application. The Function URL requires AWS Signature Version 4 and is
+not anonymously accessible. Three invocations were observed; `Errors` and
+`Throttles` were zero for the observed datapoints. The log group exists with
+3-day retention, while no initial log events appeared because logging was
+configured at `WARN`; these observations are not an all-time or comprehensive
+monitoring claim. See [AWS_DEPLOYMENT.md](../docs/AWS_DEPLOYMENT.md) for the
+deployment record and operational commands.
+
+The AWS Free account plan can expire or exhaust credits. Usage and eligibility
+must be checked in Billing, and the live endpoint may not remain available
+after expiration. The repository and documentation remain independently
+available.
+
 ### Technically accurate bullets
 
 - Implemented PDF extraction, boundary-aware overlapping chunking, 384-dimensional BGE embeddings, and local Qdrant indexing for 21,451 chunks from 800 Supreme Court judgments.
 - Benchmarked dense, BM25, hybrid RRF, cross-encoder reranking, and offline rank fusion using graded pooled relevance labels; Hybrid RRF recorded the highest held-out nDCG@5 (0.8178) and strict pooled Recall@5 (0.6710) among the tested configurations.
 - Built FastAPI/Streamlit evidence-inspection and Gemini answer workflows, plus paired A/B review and source-provenance checks; documented a 30-question single-reviewer excerpt-based assessment with no measured answer-configuration difference.
+- Deployed an IAM-authenticated serverless project API on AWS Lambda using CloudFormation, with CloudWatch monitoring to expose benchmark results from an evaluation-driven legal RAG system over 800 Indian Supreme Court judgments.
 
 ### Metrics safe to mention with their scope
 

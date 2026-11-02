@@ -103,6 +103,12 @@ V2 adds source IDs, metadata, stronger evidence-use instructions, and membership
 
 Docker packaging and a safe embedded-to-server Qdrant migration path are available in [DOCKER.md](DOCKER.md). Compose runs FastAPI, Streamlit, a private persistent Qdrant server, and a one-shot migration verifier. The original embedded index remains untouched. The application image builds successfully; API/UI health checks, all four retrieval modes, and a real Gemini request have passed. Client **1.17.1** is aligned with server **1.17.0**, and the 21,451 stored points were verified unchanged during the client update. Browser interaction and broader deployment acceptance remain separate checks. No production-deployment claim is made.
 
+## Verified AWS serverless deployment
+
+The project also has a verified AWS serverless **project API** deployment in the Free account plan. The CloudFormation stack `supreme-court-rag-demo` is `CREATE_COMPLETE` in `ap-southeast-2` (Sydney) and contains four resources: a Lambda execution role, Lambda function, IAM-authenticated Function URL, and CloudWatch log group. See [AWS_DEPLOYMENT.md](docs/AWS_DEPLOYMENT.md) for the resource inventory, commands, monitoring observations, and cleanup guidance.
+
+The Function URL requires AWS Signature Version 4 authentication and is not anonymously accessible. Its verified `GET /health`, `GET /about`, and `GET /benchmark/summary` endpoints serve static metadata and recorded benchmark results only. They do not run Qdrant, dense/BM25 retrieval, Hybrid RRF, cross-encoder reranking, or Gemini generation; the complete RAG pipeline remains in local Docker Compose. This is not a production-hosted RAG engine or a legally validated service.
+
 ## Run locally
 
 Run from the repository root using the existing Python environment. The inspected environment uses Python **3.13.1**.
@@ -163,7 +169,7 @@ reports/                                         Historical evidence and final t
 - Reranking lost relevant top-five judgments; longer-context explanations remain hypotheses, not proven causes.
 - Single-reviewer, excerpt-based answer assessment with a ceiling effect and incomplete verification disclosures.
 - Citation-membership parsing has coverage gaps and does not establish semantic entailment; abstention is largely prompt-driven.
-- External generation is stochastic and quota-dependent. No verified Docker/AWS production deployment, authentication/rate-limiting hardening, or operational reliability claim is made.
+- External generation is stochastic and quota-dependent. The verified AWS deployment is limited to a static project API; no production-grade availability, authentication/rate-limiting hardening, full-pipeline hosting, or legal-reliability claim is made.
 
 Private review workbooks, reviewer-identifying outputs, and A/B assignment mappings remain local and are intentionally excluded from Git. The final technical report contains the de-identified review summary. Review preparation requires an explicit private coordinator `--seed`; never publish it or the generated mapping.
 
