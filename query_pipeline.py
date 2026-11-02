@@ -8,6 +8,7 @@ Implements:
 """
 
 import json
+import os
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -63,8 +64,17 @@ class QueryEngine:
         print(f"Loading cross-encoder reranker: {RERANKER_MODEL}...")
         self.reranker = TextCrossEncoder(model_name=RERANKER_MODEL)
 
-        print(f"Connecting to Qdrant local storage: {db_path}...")
-        self.client = QdrantClient(path=str(db_path.resolve()))
+        qdrant_url = os.getenv("QDRANT_URL", "").strip()
+        if qdrant_url:
+            print("Connecting to Qdrant server...")
+            self.client = QdrantClient(
+                url=qdrant_url,
+                api_key=os.getenv("QDRANT_API_KEY") or None,
+                timeout=60,
+            )
+        else:
+            print(f"Connecting to Qdrant local storage: {db_path}...")
+            self.client = QdrantClient(path=str(db_path.resolve()))
         print("QueryEngine ready.")
 
     def close(self):

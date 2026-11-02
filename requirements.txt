@@ -1,0 +1,12 @@
+# Existing RAG dependencies
+fastembed
+qdrant-client
+rank-bm25
+google-genai
+openpyxl
+
+# Local application dependencies
+fastapi
+uvicorn[standard]
+streamlit
+requests

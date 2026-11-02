@@ -14,3 +14,21 @@ data/*
 !data/baseline_metrics.json
 !data/pilot_metrics_v2.json
 !data/full_benchmark_metrics_v2.json
+!data/eval_questions_heldout_approved_v1.json
+!data/heldout_eval_candidates_v1.jsonl
+!data/heldout_metrics_v1.json
+!data/HELDOUT_README.md
+
+# Editor/agent tooling is local, not application source.
+.agents/
+.claude/
+.kombai/
+
+# Keep review identities, coordinator mappings and raw answer reviews private.
+reports/*key*.json
+reports/private*.json
+reports/*.xlsx
+reports/answer_evaluation*.jsonl
+reports/answer_quality_review*.json
+reports/v1_v2_answer_quality_comparison.md
+reports/v1_v2_human_adjudicated_comparison.*

@@ -7,10 +7,11 @@
 
 ## 1. Objectives
 
-The primary objective is to establish an empirical, defensible IR benchmark comparing three retrieval strategies over Indian Supreme Court judgments:
+The primary objective is to establish an empirical, defensible IR benchmark comparing four retrieval strategies over Indian Supreme Court judgments:
 1. **Dense Vector Retrieval** (`BAAI/bge-small-en-v1.5`, cosine similarity in Qdrant)
 2. **Sparse Lexical Retrieval** (BM25Okapi on regex-tokenized chunks)
 3. **Hybrid Retrieval** (Reciprocal Rank Fusion with $k=60$ after collapsing chunks to unique judgments)
+4. **Hybrid + Cross-Encoder Reranking** (reranking the top 20 judgment-level RRF results)
 
 ---
 
@@ -40,7 +41,7 @@ To avoid annotating hundreds of duplicate candidates while remaining fair to all
 3. **Evidence Excerpts:** Up to two distinct representative excerpts per judgment are displayed.
 4. **Candidate Sizes:**
    - **Pilot Set (Q01–Q05):** 34 unique question–judgment pairs.
-   - **Full Evaluation Set (Q01–Q30):** 241 unique question–judgment pairs.
+   - **Full Evaluation Set (Q01–Q30):** 280 unique question–judgment pairs pooled from all four methods.
 
 ---
 

@@ -1,159 +1,170 @@
-# Eval-Driven Production RAG over Indian Supreme Court Judgments
+# Evaluation-driven Supreme Court RAG
 
-An evaluation-first, production-grade Retrieval-Augmented Generation (RAG) system built over 800 selected 2023 Indian Supreme Court judgments.
+A locally implemented and evaluated retrieval-augmented generation system over **800 selected English Indian Supreme Court judgments from 2023**. It combines legal-document retrieval, evidence inspection, Gemini-based synthesis, and saved-artifact evaluation.
 
-The goal of this project is to rigorously benchmark and compare retrieval methods—**Dense Vector Search**, **BM25 Keyword Search**, and **Hybrid Retrieval with Reciprocal Rank Fusion (RRF)**—using empirical IR metrics (`Hit Rate@5`, `Recall@5`, `MRR@5`, `nDCG@5`) on a human-verified ground-truth evaluation set.
+**Main finding:** Hybrid RRF achieved the highest held-out **nDCG@5 (0.8178)** and **strict pooled Recall@5 (0.6710)** among five tested retrieval configurations. Cross-encoder reranking did not outperform it. A separate human A/B answer assessment reached a scoring ceiling and measured **no difference** between answer configurations.
 
----
+This is an experimental research aid—not legal advice, a production deployment, or a demonstrated legally reliable system. See the [final technical report](reports/final_technical_report.md) for methodology, statistical qualifications, artifact references, and resume-safe summaries.
 
-## Architecture Overview
+## Problem and capabilities
 
-```
-                      +---------------------------------------+
-                      | Indian Supreme Court Judgments (2023) |
-                      |    800 PDFs (~40.6M characters)       |
-                      +---------------------------------------+
-                                          |
-                                 [ build_corpus.py ]
-                                          |
-                                          v
-                      +---------------------------------------+
-                      |           judgments.jsonl             |
-                      +---------------------------------------+
-                                          |
-                                 [ chunk_corpus.py ]
-                                          |
-                                          v
-                      +---------------------------------------+
-                      |             chunks.jsonl              |
-                      |   21,451 Chunks (2,200 chars / 250 ov) |
-                      +---------------------------------------+
-                                          |
-                       +------------------+------------------+
-                       |                                     |
-                       v                                     v
-           [ Dense Embedding Index ]               [ BM25 Lexical Index ]
-        Model: BAAI/bge-small-en-v1.5                  rank-bm25
-          Qdrant Local (qdrant_storage/)           In-memory tokenized
-                       |                                     |
-                       +------------------+------------------+
-                                          |
-                                          v
-                           +------------------------------+
-                           |  Judgment-level Fusion (RRF) |
-                           |           RRF_K = 60         |
-                           +------------------------------+
-                                          |
-                                          v
-                           +------------------------------+
-                           |  Evaluation & Benchmarking   |
-                           |   30 Curated Legal Questions |
-                           |   Pooled Relevance Review    |
-                           +------------------------------+
+Legal research requires finding the relevant judgment and the passage supporting a specific proposition—not merely producing plausible text.
+
+- Compare dense search, BM25, judgment-level hybrid fusion, and cross-encoder reranking.
+- Inspect case metadata and retrieved passages independently of generation.
+- Generate answers using the official Google GenAI SDK, with an opt-in source-ID reference contract.
+- Evaluate saved rankings against graded relevance labels without rerunning retrieval.
+- Review paired answers using randomized A/B presentation, blank review templates, provenance checks, and reproducible score aggregation.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    A[2023 English PDF archive and metadata] --> B[Select 800 judgments and extract text]
+    B --> C[Boundary-aware character chunking]
+    C --> D[BGE embeddings and local Qdrant]
+    C --> E[In-memory BM25 index]
+    Q[Legal question] --> D
+    Q --> E
+    D --> F[Judgment-level RRF]
+    E --> F
+    F --> G[Optional cross-encoder reranking]
+    G --> H[Select evidence passages]
+    H --> I[Gemini answer and source metadata]
+    H --> J[Evidence inspection]
+    I --> K[FastAPI backend and Streamlit UI]
+    J --> K
 ```
 
----
+Dense-only and BM25-only modes bypass fusion; plain Hybrid RRF bypasses reranking.
 
-## Technical Stack & Environment
+| Component | Implementation |
+|---|---|
+| Data processing | Python, `pandas`, `pyarrow`, `pypdf` |
+| Embeddings | FastEmbed, `BAAI/bge-small-en-v1.5`, 384 dimensions |
+| Dense storage | Local Qdrant; `supreme_court_2023`; cosine similarity |
+| Sparse retrieval | `rank-bm25` / `BM25Okapi` |
+| Fusion | Equal-weight judgment-level RRF, constant `k=60` |
+| Reranker | `Xenova/ms-marco-MiniLM-L-6-v2` through FastEmbed |
+| Generation | Gemini through `google-genai` |
+| Application and review | FastAPI, Streamlit, `requests`, `openpyxl`, `unittest` |
 
-- **OS:** Windows (PowerShell)
-- **Python:** 3.13.1
-- **Virtual Environment:** `.venv/`
-- **Vector Database:** Qdrant (Local disk mode at `qdrant_storage/`)
-- **Embedding Model:** `BAAI/bge-small-en-v1.5` (FastEmbed, 384 dimensions)
-- **Lexical Search:** `rank-bm25` (BM25Okapi)
-- **Data Processing:** `pandas`, `pyarrow`, `pypdf`
-- **Evaluation Workbooks:** `openpyxl`
+### Verified corpus and retrieval configuration
 
----
+| Property | Value |
+|---|---:|
+| Selected judgments | 800 |
+| Extracted text characters | 40,673,343 |
+| Stored chunks / persisted Qdrant points | 21,451 / 21,451 |
+| Nominal chunk window / overlap | 2,200 / 250 characters |
+| Initial candidates | Up to 50 chunks per dense/BM25 branch |
+| Reranker input | Up to 20 fused judgments; first 1,200 characters per representative passage |
+| Default returned evidence | Up to 5 judgments; API/UI configurable from 1 to 10 |
 
-## Corpus & Dataset Summary
+Chunking searches for newline, paragraph, period-space, and semicolon-space boundaries; it is not token-based or legal-section parsing. Counts were checked against `data/judgments.jsonl`, `data/chunks.jsonl`, and the persisted Qdrant database without rebuilding the index.
 
-- **Source:** [Indian Supreme Court Judgments Archive](https://github.com/vanga/indian-supreme-court-judgments)
-- **Scope:** Selected 2023 English judgments (800 judgments parsed).
-- **Extracted Text:** ~40,673,343 characters (~50,841 characters/judgment).
-- **Chunking Strategy:** ~2,200 characters with ~250 character overlap, respecting paragraph (`\n\n`, `\n`) and sentence boundaries (`. `, `; `).
-- **Total Chunks:** 21,451 chunks stored in `data/chunks.jsonl`.
-- **Vector Index:** 21,451 points indexed in Qdrant collection `supreme_court_2023`.
+## Retrieval evaluation
 
----
+Relevance labels are **0 = irrelevant, 1 = partially relevant, 2 = strongly relevant**. Lenient relevance counts labels ≥1; strict relevance counts label 2. Recall is against the **reviewed candidate pool**, not all relevant judgments in the corpus. nDCG uses graded relevance.
 
-## Project Structure
+### Frozen held-out retrieval benchmark
 
-```
-supreme-court-rag/
-│
-├── data/
-│   ├── eval_questions.json             # 30 curated legal evaluation questions
-│   ├── eval_candidates.jsonl           # Top candidates from Dense, BM25, and Hybrid
-│   ├── relevance_review.xlsx           # Excel review workbook (Pilot + All Top-5)
-│   ├── relevance_review_pilot_labeled.xlsx  # Pilot review (Q01-Q05) with notes
-│   ├── relevance_labels.csv            # Earlier pooled CSV (Top-10 pool)
-│   ├── chunks.jsonl                    # 21,451 chunked records
-│   ├── judgments.jsonl                 # 800 parsed judgment records
-│   ├── metadata_2023.parquet           # Raw source metadata
-│   └── selected_metadata.parquet       # Filtered metadata for 2023
-│
-├── build_corpus.py                     # PDF extraction and metadata parsing
-├── chunk_corpus.py                     # Paragraph-aware chunking pipeline
-├── embed_store.py                      # FastEmbed embedding + Qdrant indexing
-├── retrieve.py                         # Interactive retrieval CLI (Dense/BM25/RRF)
-├── eval.py                             # Evaluation candidate retrieval generator
-├── prepare_labels.py                   # Formatted Excel workbook generator
-├── app.py                              # RAG answer generation entry point (upcoming)
-│
-├── README.md                           # Project documentation
-├── PROJECT_STATUS.md                   # Real-time component tracking & audit log
-└── EVAL_PROTOCOL.md                    # Benchmark rules, metrics, and labeling guide
-```
+**H01–H30; 30 queries × 5 configurations = 150 ranking records; 292 unique reviewed query–judgment pairs.**
 
----
+| Retrieval method | nDCG@5 | Lenient pooled Recall@5 | Strict pooled Recall@5 |
+|---|---:|---:|---:|
+| Dense | 0.7292 | 0.5525 | 0.5990 |
+| BM25 | 0.7988 | 0.5544 | 0.6509 |
+| **Hybrid RRF** | **0.8178** | **0.6138** | **0.6710** |
+| Hybrid RRF + reranking | 0.7811 | 0.5789 | 0.5731 |
+| BM25 + reranked fusion | 0.8043 | 0.5870 | 0.6534 |
 
-## Getting Started
+Sources: [full saved metrics](reports/heldout_final_metrics_v1.json), [earlier summary](data/heldout_metrics_v1.json), [candidate rankings](data/heldout_eval_candidates_v1.jsonl), and `data/heldout_relevance_review_v1.xlsx`.
 
-### 1. Activate Environment
+The fifth configuration is an **offline fusion experiment**, not an additional API mode. Paired bootstrap analysis uses 10,000 question resamples. The nDCG and strict-recall intervals comparing RRF with BM25, reranking, and fusion cross zero; no statistically significant superiority over those methods is claimed. Other intervals do exclude zero, so a blanket statement that *all* intervals cross zero is incorrect; the [technical report](reports/final_technical_report.md#10-held-out-retrieval-results-and-uncertainty) documents the distinction.
+
+Development results on **Q01–Q30**, used for analysis and experimentation, are reported separately in the technical report. They are not held-out results. The H questions were subsequently reused to diagnose and develop answer grounding; their historical retrieval benchmark remains frozen, but they are **development questions for the answer comparison**.
+
+## Human answer A/B assessment
+
+The completed `data/answer_review_v1_v2_human_adjudication.xlsx` contains **30 pairs, 60 answers, and 180 completed scores** from one human evaluator. Both configurations use `gemini-3.1-flash-lite`, Hybrid RRF, five sources, and identical ordered retrieved evidence.
+
+| Criterion | Answer A mean /2 | Answer B mean /2 | Difference |
+|---|---:|---:|---:|
+| Correctness | 2.00 | 2.00 | 0 |
+| Citation support | 2.00 | 2.00 | 0 |
+| Completeness | 2.00 | 2.00 | 0 |
+
+Every pair ties on every criterion. This is a **ceiling effect, not evidence that V2 outperformed V1 or that arbitrary legal questions can be answered perfectly**. Review was excerpt-based; full-PDF verification, independent expert review, inter-rater agreement, and unseen-question performance are not established. Earlier AI-assisted draft scores are provisional and are not the final answer-quality metrics. The technical report provides a de-identified account of the saved assessment.
+
+V2 adds source IDs, metadata, stronger evidence-use instructions, and membership checks. The validator returns `semantic_support_verified: false`: resolving an ID is **not proof that its passage supports the adjacent claim**.
+
+## Docker stack
+
+Docker packaging and a safe embedded-to-server Qdrant migration path are available in [DOCKER.md](DOCKER.md). Compose runs FastAPI, Streamlit, a private persistent Qdrant server, and a one-shot migration verifier. The original embedded index remains untouched. The application image builds successfully; API/UI health checks, all four retrieval modes, and a real Gemini request have passed. Client **1.17.1** is aligned with server **1.17.0**, and the 21,451 stored points were verified unchanged during the client update. Browser interaction and broader deployment acceptance remain separate checks. No production-deployment claim is made.
+
+## Run locally
+
+Run from the repository root using the existing Python environment. The inspected environment uses Python **3.13.1**.
 
 ```powershell
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-### 2. Interactive Retrieval CLI
+Installation is optional for an already provisioned environment. Dependencies are unpinned; `requirements.txt` does not explicitly include the corpus-processing dependencies `pandas`, `pyarrow`, and `pypdf`. Prepared `data/chunks.jsonl` and `qdrant_storage/` artifacts are required for live retrieval and are not guaranteed to be included in a source-only checkout.
 
-To test retrieval interactively for any legal question:
+In separate terminals, activate the environment and run:
 
 ```powershell
-python retrieve.py
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 ```
-
-### 3. Generate Evaluation Candidates
-
-To run dense, BM25, and hybrid retrieval across all 30 evaluation questions:
 
 ```powershell
-python eval.py
+python -m streamlit run frontend.py --server.port 8501
 ```
 
-*Output:* `data/eval_candidates.jsonl` (90 question-method blocks).
+- UI: `http://127.0.0.1:8501`; API docs: `http://127.0.0.1:8000/docs`.
+- `GET /health` reports engine initialization; `POST /api/retrieve` retrieves evidence without a Gemini key.
+- `POST /api/query` generates answers; `GET /api/metrics` serves the **development** retrieval report, not the held-out table above.
+- Keep `GEMINI_API_KEY` in a local environment or unshared `.env`. Generation sends questions/evidence to Google and is subject to provider cost and quotas. Model initialization may download weights.
+- Use one backend process against local Qdrant storage; do not start multiple workers or retrieval CLIs against the same directory concurrently.
 
-### 4. Generate the Human Review Workbook
+**Defaults are not the evaluated answer configuration:** the application still defaults to `hybrid_reranked`, `gemini-2.5-flash`, and V1. The saved A/B evaluation used explicit model/version settings and `hybrid_rrf`; no defaults were changed to match benchmark winners.
 
-To generate the formatted Excel workbook (`data/relevance_review.xlsx`) with data validation and conditional styling:
+See [LOCAL_RUN.md](LOCAL_RUN.md) for historical launch/troubleshooting instructions. To run offline regression tests:
 
 ```powershell
-python prepare_labels.py
+python -B -m unittest discover -s tests -v
 ```
 
----
+The [technical report](reports/final_technical_report.md#15-reproducibility-and-project-execution) explains how to verify saved metrics without overwriting them. Do not rerun candidate generation, workbook preparation, or corpus/index builders over frozen artifacts just to view results.
 
-## Evaluation Workflow
+## Project structure
 
-1. **Candidate Pooling:** Dense, BM25, and Hybrid RRF candidates are pooled (top-5 per method) and deduplicated per judgment.
-2. **Pilot Review (Q01–Q05):** 34 unique question–judgment pairs reviewed to validate snippet readability and rubric clarity.
-3. **Full Review (Q01–Q30):** 241 unique candidates reviewed with graded relevance labels:
-   - `0`: Irrelevant (does not meaningfully address the question).
-   - `1`: Partially relevant (related legal principles/context, but indirect).
-   - `2`: Strongly relevant (direct and substantive legal answer).
-4. **Metrics Calculation:** Empirical comparison across methods using `Hit@5`, `Recall@5`, `MRR@5`, and `nDCG@5`.
-5. **Answer Generation (RAG):** Grounded synthesis and citation verification.
+```text
+build_corpus.py / chunk_corpus.py / embed_store.py  Corpus and indexing
+query_pipeline.py / retrieve.py                   Retrieval engine and CLI
+rag_engine.py / app.py / frontend.py              Generation, API and UI
+eval.py / prepare_labels.py / prepare_heldout.py    Candidate and review preparation
+calculate_metrics.py / calculate_heldout_metrics.py Saved-ranking evaluation
+answer_evaluation.py                              API-based answer generation runs
+prepare_human_adjudication.py                     Paired review preparation
+calculate_human_adjudication.py                   Confirmed excerpt-review aggregation
+experiments/                                     Offline fusion experiment
+tests/                                           Offline regression tests
+reports/                                         Historical evidence and final technical report
+```
 
-For complete evaluation protocols, see [EVAL_PROTOCOL.md](file:///C:/Users/achya/supreme-court-rag/EVAL_PROTOCOL.md).
+## Limitations
+
+- Selected one-year English corpus; not comprehensive coverage or a current-law service.
+- Only 30 held-out retrieval queries, shallow judged pools, and no demonstrated independent multi-reviewer agreement for relevance labels.
+- Reranking lost relevant top-five judgments; longer-context explanations remain hypotheses, not proven causes.
+- Single-reviewer, excerpt-based answer assessment with a ceiling effect and incomplete verification disclosures.
+- Citation-membership parsing has coverage gaps and does not establish semantic entailment; abstention is largely prompt-driven.
+- External generation is stochastic and quota-dependent. No verified Docker/AWS production deployment, authentication/rate-limiting hardening, or operational reliability claim is made.
+
+Private review workbooks, reviewer-identifying outputs, and A/B assignment mappings remain local and are intentionally excluded from Git. The final technical report contains the de-identified review summary. Review preparation requires an explicit private coordinator `--seed`; never publish it or the generated mapping.
+
+Historical reports, [PROJECT_STATUS.md](PROJECT_STATUS.md), and [EVAL_PROTOCOL.md](EVAL_PROTOCOL.md) are preserved. Some contain outdated plans, terminology, or reviewer-provenance claims; use the final technical report's discrepancy register when interpreting them.

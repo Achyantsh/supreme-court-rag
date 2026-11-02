@@ -1,0 +1,120 @@
+name: supreme-court-rag
+
+x-application: &application
+  image: supreme-court-rag-app:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+  init: true
+
+services:
+  qdrant:
+    image: supreme-court-rag-qdrant:local
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?Set a nonempty QDRANT_API_KEY in your private .env}
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    networks:
+      - storage
+    # No ports: Qdrant is accessible only to containers on the private network.
+
+  migrate:
+    <<: *application
+    restart: "no"
+    command: ["python", "migrate_qdrant.py", "import", "--url", "http://qdrant:6333", "--file", "/migration/points.jsonl", "--chunks", "/app/data/chunks.jsonl", "--destination-writes-stopped"]
+    environment:
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ./data/chunks.jsonl
+        target: /app/data/chunks.jsonl
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/qdrant_server_export.jsonl
+        target: /migration/points.jsonl
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - storage
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  api:
+    <<: *application
+    restart: unless-stopped
+    command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - type: bind
+        source: ./data/chunks.jsonl
+        target: /app/data/chunks.jsonl
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./data/full_benchmark_metrics_v2.json
+        target: /app/data/full_benchmark_metrics_v2.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - model_cache:/models
+    networks:
+      - storage
+      - application
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/docker/healthcheck.py", "api"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15m
+      retries: 10
+    stop_grace_period: 60s
+
+  streamlit:
+    <<: *application
+    restart: unless-stopped
+    command: ["python", "-m", "streamlit", "run", "frontend.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true", "--browser.gatherUsageStats", "false"]
+    environment:
+      API_BASE_URL: http://api:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    networks:
+      - application
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "/app/docker/healthcheck.py", "streamlit"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+networks:
+  storage:
+    internal: true
+  application:
+
+volumes:
+  qdrant_data:
+  qdrant_snapshots:
+  model_cache:

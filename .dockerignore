@@ -1,0 +1,12 @@
+# Allowlist: no secrets, corpus, PDFs, local DB, workbooks or model weights.
+**
+!Dockerfile
+!requirements-docker.txt
+!app.py
+!frontend.py
+!rag_engine.py
+!query_pipeline.py
+!migrate_qdrant.py
+!docker/
+!docker/Dockerfile.qdrant
+!docker/healthcheck.py

@@ -1,0 +1,8 @@
+# Separate server storage: never mount the embedded SQLite directory here.
+FROM qdrant/qdrant:v1.17.0
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=20 \
+    CMD curl --fail --silent --show-error http://127.0.0.1:6333/readyz || exit 1
