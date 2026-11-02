@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Supreme Court RAG: an evaluation-driven retrieval-augmented generation system over Indian Supreme Court judgments.">
+  <meta name="theme-color" content="#10151d">
+  <title>Supreme Court RAG | Evaluation-driven legal retrieval</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="shell nav-wrap">
+      <a class="wordmark" href="#top" aria-label="Supreme Court RAG home">
+        <span class="wordmark-mark" aria-hidden="true">SC</span>
+        <span>Supreme Court <b>RAG</b></span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#architecture">Architecture</a>
+        <a href="#evaluation">Evaluation</a>
+        <a href="#deployment">Deployment</a>
+        <a href="#engineering">Engineering notes</a>
+      </nav>
+      <button class="theme-toggle" type="button" aria-label="Switch to light theme" aria-pressed="false">
+        <span aria-hidden="true">◐</span><span class="theme-label">Light mode</span>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero shell" id="top">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> Research system · 2023 corpus · v1 evaluation</p>
+        <h1>Retrieval that can<br><em>show its work.</em></h1>
+        <p class="hero-lede">An evaluation-driven retrieval-augmented generation system over selected Indian Supreme Court judgments. It compares dense, lexical and hybrid retrieval, then keeps evidence inspection in the loop.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#architecture">Explore architecture <span aria-hidden="true">↓</span></a>
+          <a class="button button-secondary" href="https://github.com/Achyantsh/supreme-court-rag">View GitHub repository <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="hero-meta" aria-label="Technology highlights">
+          <span>Python</span><span>Qdrant</span><span>BM25</span><span>Gemini</span><span>FastAPI</span>
+        </div>
+      </div>
+      <div class="hero-card" aria-label="Project status">
+        <div class="card-kicker">SYSTEM NOTE / 01</div>
+        <div class="hero-card-line"></div>
+        <p class="hero-card-title">A measured research aid,<br>not a legal advice system.</p>
+        <dl class="mini-facts">
+          <div><dt>Best held-out nDCG@5</dt><dd>0.8178</dd></div>
+          <div><dt>Leading configuration</dt><dd>Hybrid RRF</dd></div>
+          <div><dt>Deployment boundary</dt><dd>Local RAG · AWS metadata API</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="stats-band" aria-label="Verified project statistics">
+      <div class="shell stats-grid">
+        <div class="stat"><strong>800</strong><span>selected judgments</span></div>
+        <div class="stat"><strong>21,451</strong><span>semantic chunks</span></div>
+        <div class="stat"><strong>30</strong><span>held-out queries</span></div>
+        <div class="stat"><strong>292</strong><span>pooled query–judgment candidates</span></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="architecture">
+      <div class="section-intro">
+        <p class="eyebrow">01 / Architecture</p>
+        <h2>Two retrieval paths.<br><em>One evidence boundary.</em></h2>
+        <p>The system retrieves at judgment level, preserves representative passages, and makes the trade-offs between retrieval quality and generated answers visible.</p>
+      </div>
+      <div class="architecture-panel">
+        <div class="architecture-label">LOCAL DOCKER COMPOSE RUNTIME</div>
+        <div class="pipeline">
+          <div class="pipeline-node source"><span class="node-index">01</span><strong>Judgment PDFs<br>& metadata</strong><small>2023 English archive</small></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="pipeline-node"><span class="node-index">02</span><strong>Text extraction<br>& chunking</strong><small>Boundary-aware windows</small></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="pipeline-node"><span class="node-index">03</span><strong>BGE-small<br>embeddings</strong><small>384-dimensional vectors</small></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="pipeline-node accent"><span class="node-index">04</span><strong>Qdrant dense<br>retrieval</strong><small>Cosine similarity</small></div>
+        </div>
+        <div class="query-row"><div class="query-node"><span>Q</span><strong>Legal question</strong></div><div class="query-line"></div><div class="query-branch"><div class="branch-node"><b>BM25</b><small>lexical retrieval</small></div><div class="branch-node"><b>Dense search</b><small>semantic retrieval</small></div></div></div>
+        <div class="merge-row"><span class="merge-line"></span><div class="merge-node"><strong>Judgment-level RRF</strong><small>rank fusion · k = 60</small></div><span class="merge-line"></span></div>
+        <div class="output-row">
+          <div class="output-node"><span class="node-index">05</span><strong>Candidate<br>retrieval</strong></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="output-node rerank"><span class="node-index">06</span><strong>Optional cross-encoder<br>reranking</strong><small>evaluated separately</small></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="output-node"><span class="node-index">07</span><strong>Grounded Gemini<br>answer</strong></div>
+          <div class="pipeline-arrow" aria-hidden="true">→</div>
+          <div class="output-node accent"><span class="node-index">08</span><strong>Case citations<br>& excerpts</strong></div>
+        </div>
+        <p class="diagram-note"><span class="note-mark">!</span> Reranking is an evaluated configuration, not an assumed improvement. On the held-out benchmark it did not outperform plain Hybrid RRF.</p>
+      </div>
+    </section>
+
+    <section class="section section-tint" id="evaluation">
+      <div class="shell">
+        <div class="section-intro evaluation-intro">
+          <p class="eyebrow">02 / Evaluation</p>
+          <h2>Evidence before<br><em>impressions.</em></h2>
+          <p>Five retrieval configurations were evaluated on the frozen held-out set. Hybrid RRF has the highest point estimates in this benchmark; that is a scoped result, not a universal claim.</p>
+        </div>
+        <div class="evaluation-layout">
+          <div class="chart-card">
+            <div class="chart-heading"><div><span class="card-kicker">HELD-OUT / H01–H30</span><h3>Ranking quality by method</h3></div><span class="chart-unit">0 — 1.0</span></div>
+            <div class="chart-legend"><span><i class="legend-swatch ndcg"></i>nDCG@5</span><span><i class="legend-swatch recall"></i>Strict pooled Recall@5</span></div>
+            <div class="bar-chart" role="img" aria-label="Grouped bar chart comparing nDCG at 5 and strict pooled Recall at 5 for five retrieval methods. Hybrid RRF leads with 0.8178 nDCG and 0.6710 strict recall.">
+              <div class="gridline gridline-75"><span>0.75</span></div><div class="gridline gridline-50"><span>0.50</span></div><div class="gridline gridline-25"><span>0.25</span></div><div class="gridline gridline-0"><span>0</span></div>
+              <div class="chart-column"><div class="bars"><span class="bar ndcg" style="--value:72.92" title="nDCG@5 0.7292"></span><span class="bar recall" style="--value:59.90" title="Strict Recall@5 0.5990"></span></div><b>Dense</b></div>
+              <div class="chart-column"><div class="bars"><span class="bar ndcg" style="--value:79.88" title="nDCG@5 0.7988"></span><span class="bar recall" style="--value:65.09" title="Strict Recall@5 0.6509"></span></div><b>BM25</b></div>
+              <div class="chart-column best"><div class="bars"><span class="bar ndcg" style="--value:81.78" title="nDCG@5 0.8178"></span><span class="bar recall" style="--value:67.10" title="Strict Recall@5 0.6710"></span></div><b>Hybrid RRF</b></div>
+              <div class="chart-column"><div class="bars"><span class="bar ndcg" style="--value:78.11" title="nDCG@5 0.7811"></span><span class="bar recall" style="--value:57.31" title="Strict Recall@5 0.5731"></span></div><b>RRF + rerank</b></div>
+              <div class="chart-column"><div class="bars"><span class="bar ndcg" style="--value:80.43" title="nDCG@5 0.8043"></span><span class="bar recall" style="--value:65.34" title="Strict Recall@5 0.6534"></span></div><b>BM25 + fusion</b></div>
+            </div>
+          </div>
+          <div class="metric-notes">
+            <article class="metric-note"><span class="metric-symbol">n</span><div><h3>nDCG@5</h3><p>Graded ranking quality: strongly relevant judgments contribute more, with lower weight as rank decreases.</p></div></article>
+            <article class="metric-note"><span class="metric-symbol">L</span><div><h3>Lenient pooled Recall@5</h3><p>Counts labels <b>1 or 2</b> as relevant. It measures recovery against the reviewed candidate pool.</p></div></article>
+            <article class="metric-note"><span class="metric-symbol">S</span><div><h3>Strict pooled Recall@5</h3><p>Counts only label <b>2</b> as relevant. It is intentionally stricter than lenient recall.</p></div></article>
+          </div>
+        </div>
+        <div class="results-table-wrap">
+          <table><caption class="sr-only">Held-out retrieval benchmark results</caption><thead><tr><th>Retrieval method</th><th>nDCG@5</th><th>Lenient Recall@5</th><th>Strict Recall@5</th></tr></thead><tbody>
+            <tr><td>Dense</td><td>0.7292</td><td>0.5525</td><td>0.5990</td></tr><tr><td>BM25</td><td>0.7988</td><td>0.5544</td><td>0.6509</td></tr><tr class="highlight"><td><strong>Hybrid RRF</strong><span class="row-note">highest point estimates</span></td><td><strong>0.8178</strong></td><td><strong>0.6138</strong></td><td><strong>0.6710</strong></td></tr><tr><td>Hybrid RRF + reranking</td><td>0.7811</td><td>0.5789</td><td>0.5731</td></tr><tr><td>BM25 + reranked fusion</td><td>0.8043</td><td>0.5870</td><td>0.6534</td></tr>
+          </tbody></table>
+        </div>
+        <div class="limitations-grid"><div><span class="card-kicker">READ THE RESULT CORRECTLY</span><p>Only 30 held-out queries were evaluated. Pooled recall depends on the reviewed candidate pool, and these are benchmark-specific results—not a claim about all judgments or all legal questions.</p></div><div><span class="card-kicker">WHAT DID NOT IMPROVE</span><p>Cross-encoder reranking did not improve upon Hybrid RRF in this evaluation. There was no independent legal validation.</p></div></div>
+      </div>
+    </section>
+
+    <section class="section shell" id="deployment">
+      <div class="section-intro">
+        <p class="eyebrow">03 / Deployment</p>
+        <h2>AWS hosts the<br><em>project record.</em></h2>
+        <p>The verified serverless deployment is intentionally narrow: it exposes static project metadata and recorded benchmark results behind IAM authentication. The full RAG runtime stays local.</p>
+      </div>
+      <div class="deployment-grid">
+        <div class="deployment-card deployment-main"><div class="card-kicker">VERIFIED AWS DEPLOYMENT</div><div class="deploy-status"><span class="status-dot"></span><strong>CREATE_COMPLETE</strong><span>ap-southeast-2 · Sydney</span></div><div class="deploy-stack">supreme-court-rag-demo</div><div class="resource-list"><div><b>Lambda</b><span>Python 3.12 · ARM64 · 128 MB · 3 sec</span></div><div><b>Auth</b><span>AWS_IAM · SigV4 required</span></div><div><b>Observability</b><span>CloudWatch Logs · 3-day retention</span></div></div><p class="muted">The Function URL is not anonymously accessible. The static site never calls it and remains independent of AWS availability.</p></div>
+        <div class="deployment-card boundary-card"><div class="card-kicker">ARCHITECTURAL BOUNDARY</div><h3>Not deployed to AWS</h3><ul class="boundary-list"><li>Qdrant corpus</li><li>BM25 index</li><li>Dense retrieval</li><li>Hybrid RRF execution</li><li>Cross-encoder reranking</li><li>Gemini generation</li></ul><p>These components run in the local Docker Compose application.</p></div>
+      </div>
+      <div class="endpoint-strip"><span class="card-kicker">VERIFIED ENDPOINTS</span><span><code>GET /health</code> <b>200</b></span><span><code>GET /about</code> <b>200</b></span><span><code>GET /benchmark/summary</code> <b>200</b></span></div>
+    </section>
+
+    <section class="section section-tint" id="engineering">
+      <div class="shell">
+        <div class="section-intro"><p class="eyebrow">04 / Engineering notes</p><h2>Decisions made<br><em>measurable.</em></h2></div>
+        <div class="decision-grid">
+          <article><span class="decision-number">01</span><h3>Hybrid retrieval was worth testing</h3><p>Dense search captures semantic similarity while BM25 preserves exact legal terminology. RRF combines ranks without requiring incompatible score calibration.</p></article>
+          <article><span class="decision-number">02</span><h3>RRF stays the leading baseline</h3><p>Plain judgment-level Hybrid RRF recorded the strongest held-out point estimates. Reranking remains an independent experiment, not a default claim of improvement.</p></article>
+          <article><span class="decision-number">03</span><h3>Splits protect interpretation</h3><p>Development experiments and the frozen held-out retrieval benchmark are reported separately so tuning evidence is not presented as unseen-test evidence.</p></article>
+          <article><span class="decision-number">04</span><h3>Local runtime, honest cloud edge</h3><p>The full pipeline remains containerised locally because the verified AWS function is a lightweight metadata API, not a host for models, vectors, or generation.</p></article>
+        </div>
+        <div class="tech-stack"><div class="card-kicker">TECHNOLOGY STACK</div><div class="tech-grid"><div><b>Retrieval</b><span>BAAI/bge-small-en-v1.5 · BM25 · Qdrant · RRF</span></div><div><b>Reranking</b><span>FastEmbed cross-encoder</span></div><div><b>Generation</b><span>Google Gemini</span></div><div><b>Backend</b><span>Python · FastAPI</span></div><div><b>Interface</b><span>Streamlit</span></div><div><b>Infrastructure</b><span>Docker · Lambda · CloudFormation · IAM · CloudWatch</span></div></div></div>
+      </div>
+    </section>
+
+    <section class="section shell closing">
+      <div class="closing-copy"><p class="eyebrow">OPEN SOURCE / RESEARCH DOCUMENTED</p><h2>Follow the evidence<br><em>back to the repo.</em></h2><p>This project is an engineering and research demonstration, not a legal advice system. It has not undergone independent legal validation.</p></div>
+      <div class="resource-links"><a href="https://github.com/Achyantsh/supreme-court-rag">Source code <span>↗</span></a><a href="https://github.com/Achyantsh/supreme-court-rag/blob/main/README.md">README <span>↗</span></a><a href="https://github.com/Achyantsh/supreme-court-rag/blob/main/reports/final_technical_report.md">Technical report <span>↗</span></a><a href="https://github.com/Achyantsh/supreme-court-rag/blob/main/docs/AWS_DEPLOYMENT.md">AWS deployment notes <span>↗</span></a><a href="https://github.com/Achyantsh/supreme-court-rag/blob/main/EVAL_PROTOCOL.md">Evaluation protocol <span>↗</span></a></div>
+    </section>
+  </main>
+  <footer class="site-footer"><div class="shell footer-inner"><span>SUPREME COURT RAG / 2026</span><span>Built as a documented engineering demonstration.</span><a href="#top">Back to top ↑</a></div></footer>
+  <script src="script.js"></script>
+</body>
+</html>

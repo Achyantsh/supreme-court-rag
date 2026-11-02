@@ -4,7 +4,11 @@ A locally implemented and evaluated retrieval-augmented generation system over *
 
 **Main finding:** Hybrid RRF achieved the highest held-out **nDCG@5 (0.8178)** and **strict pooled Recall@5 (0.6710)** among five tested retrieval configurations. Cross-encoder reranking did not outperform it. A separate human A/B answer assessment reached a scoring ceiling and measured **no difference** between answer configurations.
 
+**Public project website:** [GitHub Pages site](https://achyantsh.github.io/supreme-court-rag/) *(deployment pending until GitHub Pages is enabled with Actions)*.
+
 This is an experimental research aid—not legal advice, a production deployment, or a demonstrated legally reliable system. See the [final technical report](reports/final_technical_report.md) for methodology, statistical qualifications, artifact references, and resume-safe summaries.
+
+> This project is an engineering and research demonstration, not a legal advice system. It has not undergone independent legal validation.
 
 ## Problem and capabilities
 

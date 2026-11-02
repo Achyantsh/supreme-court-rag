@@ -42,10 +42,10 @@ reranking, or Gemini generation for this deployment.
 
 The four deployed resources are:
 
-1. AWS Lambda execution IAM role
-2. AWS Lambda function
-3. AWS Lambda Function URL
-4. AWS CloudWatch Log Group
+1. `DemoExecutionRole` — AWS Lambda execution IAM role
+2. `DemoFunction` — AWS Lambda function
+3. `DemoFunctionUrl` — AWS Lambda Function URL
+4. `DemoLogGroup` — AWS CloudWatch Log Group
 
 The deployed Lambda configuration is:
 
@@ -62,6 +62,28 @@ The deployed Lambda configuration is:
 The repository does not currently contain the CloudFormation template or an
 AWS deployment script. The inventory and configuration above are the verified
 deployed values; this document is not an infrastructure-as-code replacement.
+
+### Deployment notes
+
+The verified deployment is region-scoped to `ap-southeast-2` (Sydney); all
+inspection and cleanup commands in this document therefore pass that region
+explicitly. No other region is represented as a verified deployment target.
+
+No reserved concurrency is configured on the function. The available
+deployment record does not include a separate concurrency incident or a
+resolution procedure, so this documentation does not invent one. If a
+concurrency limit is required later, it must be changed and verified through
+the deployed CloudFormation stack rather than assumed from this record.
+
+### CloudFormation process
+
+The stack was created from a CloudFormation template in the deployment
+environment and then verified with `describe-stacks` and
+`list-stack-resources`. That template is not tracked in this repository, so
+the exact create/update command and template contents cannot be reproduced
+here without inventing infrastructure details. The repository intentionally
+does not modify or recreate the deployed stack. The read-only inspection
+commands below are the supported verification path for this checkout.
 
 ## Function URL and authentication
 
